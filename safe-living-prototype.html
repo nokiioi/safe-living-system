@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Safe Living System: Caregiver Console</title>
+<style>
+:root{--ink:#14232f;--sea:#0f4c5c;--paper:#f4f7f7;--card:#fff;--line:#d5dfe0;--ok:#2f7d5b;--warn:#a86f00;--bad:#c23b3b;--mute:#58707c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.45 "Segoe UI",system-ui,sans-serif}
+header{background:var(--sea);color:#fff;padding:14px 24px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+header h1{margin:0;font:700 24px Georgia,serif}
+#nav{display:flex;gap:8px;flex-wrap:wrap;padding:12px 24px;background:#e4ecec}
+button,input,select{font:inherit;min-height:44px;border-radius:8px;border:1px solid #9db2b8;padding:6px 12px;background:#fff;color:var(--ink)}
+button{cursor:pointer;background:var(--sea);color:#fff;border-color:var(--sea);font-weight:600}
+button.ghost,#nav button{background:#fff;color:var(--sea)}
+#nav button.on{background:var(--sea);color:#fff}
+button.bad{background:var(--bad);border-color:var(--bad)}
+:focus-visible{outline:3px solid #f2a33a;outline-offset:2px}
+main{max-width:1100px;margin:0 auto;padding:20px 24px}
+h2{font:700 28px Georgia,serif;margin:4px 0 6px}
+.lead{color:var(--mute);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+label{display:flex;flex-direction:column;gap:4px;font-size:15px;color:var(--mute)}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);font-size:16px}
+th{color:var(--mute);font-weight:600}
+.pill{padding:2px 10px;border-radius:99px;font-size:14px;font-weight:600;color:#fff;background:var(--mute)}
+.active,.low,.resolved{background:var(--ok)}.offline,.high{background:var(--bad)}.low_battery,.medium{background:var(--warn)}
+#stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+.stat{border-radius:12px;padding:16px;color:#fff;display:flex;flex-direction:column}
+.stat b{font:700 44px Georgia,serif;line-height:1}.stat span{font-size:16px}
+.stat.active{background:var(--ok)}.stat.offline{background:var(--bad)}.stat.low_battery{background:var(--warn)}
+#msg{min-height:28px;font-weight:600;margin:0 0 10px}#msg.ok{color:var(--ok)}#msg.err{color:var(--bad)}
+#sqlbox{background:#14232f;color:#e6f0f2;margin:24px;border-radius:12px;padding:14px 18px}
+#sqlbox h3{margin:0 0 6px;font-size:15px;color:#9fc3cc}
+#sql{margin:0;font:14px/1.5 Consolas,"Courier New",monospace;white-space:pre-wrap}
+input.n{width:90px}
+@media(max-width:640px){#stats{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header><h1>Safe Living System</h1><span id="who"></span></header>
+<nav id="nav" hidden>
+<button data-s="dash">Home safety</button><button data-s="inc">Alerts</button><button data-s="hist">History</button><button data-s="contacts">Trusted contacts</button><button data-s="settings">Devices &amp; settings</button><button class="ghost" id="out">Log out</button>
+</nav>
+<main>
+<p id="msg" role="status"></p>
+
+<section class="screen" id="setup" hidden>
+<h2>Connect to Supabase</h2><p class="lead">Paste the Project URL and the anon public key (Project Settings → API). They are saved only in this browser.</p>
+<div class="card row"><label>Project URL<input id="url" size="38" placeholder="https://xxxx.supabase.co"></label><label>Anon key<input id="key" size="38" placeholder="eyJ…"></label><button id="saveCfg">Save and connect</button></div>
+</section>
+
+<section class="screen" id="login" hidden>
+<h2>Log in</h2><p class="lead">Enter the email of a resident from the app_user table.</p>
+<div class="card row"><label>Email<input id="email" type="email" size="32" autocomplete="off"></label><button id="loginBtn">Log in</button><button class="ghost" id="fill">Use first user</button><button class="ghost" id="reset">Change connection</button></div>
+</section>
+
+<section class="screen" id="dash" hidden>
+<h2>Home safety dashboard</h2><p class="lead">Current state of all sensors.</p>
+<div id="stats"></div>
+<div class="card row"><label>Room<select id="fLoc"><option value="">All rooms</option></select></label><label>Status<select id="fSt"><option value="">Any status</option><option>active</option><option>offline</option><option>low_battery</option></select></label><button id="applyF">Show devices</button></div>
+<div class="card"><table><thead><tr><th>ID</th><th>Sensor</th><th>Room</th><th>Status</th><th>Last detection</th></tr></thead><tbody id="devs"></tbody></table></div>
+</section>
+
+<section class="screen" id="inc" hidden>
+<h2>Alerts</h2><p class="lead">Incidents that still need a response.</p>
+<div class="card"><table><thead><tr><th>Incident</th><th>Room</th><th>Severity</th><th>Time</th><th>Message sent</th><th></th></tr></thead><tbody id="incs"></tbody></table></div>
+</section>
+
+<section class="screen" id="hist" hidden>
+<h2>Situations history</h2><p class="lead">How many incidents happened, by severity.</p>
+<div class="card"><table><thead><tr><th>Severity</th><th>Open</th><th>Resolved</th><th>Total</th></tr></thead><tbody id="agg"></tbody></table></div>
+<div class="card"><table><thead><tr><th>When</th><th>Incident</th><th>Severity</th><th>Status</th></tr></thead><tbody id="recent"></tbody></table></div>
+</section>
+
+<section class="screen" id="contacts" hidden>
+<h2>Trusted contacts</h2><p class="lead">People who receive alerts, in order of priority.</p>
+<div class="card"><table><thead><tr><th>Name</th><th>Phone</th><th>Relation</th><th>Priority</th><th></th></tr></thead><tbody id="cons"></tbody></table></div>
+<div class="card row"><label>Name<input id="cName"></label><label>Phone<input id="cPhone"></label><label>Email<input id="cEmail"></label><label>Relation<select id="cRel"><option>daughter</option><option>son</option><option>neighbor</option><option>doctor</option></select></label><label>Priority<input id="cPrio" class="n" type="number" min="1" value="1"></label><button id="addC">Add contact</button></div>
+</section>
+
+<section class="screen" id="settings" hidden>
+<h2>Devices &amp; settings</h2><p class="lead">Change acceptable ranges or add a new sensor.</p>
+<div class="card"><table><thead><tr><th>ID</th><th>Sensor</th><th>Room</th><th>Min</th><th>Max</th><th></th></tr></thead><tbody id="setd"></tbody></table></div>
+<div class="card row"><label>Sensor<select id="nType"><option>water_leak</option><option>smoke_detector</option><option>fall_detector</option><option>motion_sensor</option><option>door_sensor</option><option>temperature_sensor</option></select></label><label>Room<input id="nLoc" placeholder="bathroom"></label><label>Min<input id="nMin" class="n" type="number" value="0"></label><label>Max<input id="nMax" class="n" type="number" value="1"></label><button id="addD">Add sensor</button></div>
+</section>
+</main>
+<div id="sqlbox"><h3>SQL behind this screen</h3><pre id="sql">-- Run an action to see its SQL here.</pre></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const q1=s=>String(s).replace(/'/g,"''");
+const fmt=t=>t?String(t).replace('T',' ').slice(0,16):'—';
+let sb=null,me=null;const L={};
+const cfg=()=>{try{return JSON.parse(localStorage.getItem('slsCfg')||'{}')}catch(e){return{}}};
+function connect(){const c=cfg();if(!c.url||!c.key||!window.supabase)return false;sb=supabase.createClient(c.url,c.key);return true}
+function msg(t,bad){const m=$('#msg');m.textContent=t||'';m.className=bad?'err':'ok'}
+function sql(t,keep){$('#sql').textContent=keep?$('#sql').textContent+'\n\n'+t:t}
+function show(id){$$('.screen').forEach(e=>e.hidden=e.id!==id);$$('#nav button[data-s]').forEach(b=>b.classList.toggle('on',b.dataset.s===id));$('#nav').hidden=!me;msg('');if(L[id])L[id]()}
+async function db(text,p,keep){const r=await p;if(r.error){msg(r.error.code==='23503'?'This record is linked to other data (for example, alerts), so it cannot be deleted. Delete a record you added yourself.':'Database error: '+r.error.message,1);sql(text+'\n-- ERROR: '+r.error.message,keep);return null}sql(text,keep);return r}
+async function nextId(t,c){const r=await sb.from(t).select(c).order(c,{ascending:false}).limit(1);return((r.data&&r.data[0]&&r.data[0][c])||0)+1}
+const pill=(c,t)=>`<span class="pill ${esc(c)}">${esc(t||c).replace('_',' ')}</span>`;
+
+/* Setup and login */
+$('#saveCfg').onclick=()=>{localStorage.setItem('slsCfg',JSON.stringify({url:$('#url').value.trim(),key:$('#key').value.trim()}));connect()?show('login'):msg('Enter a valid URL and key.',1)};
+$('#reset').onclick=()=>show('setup');
+$('#out').onclick=()=>{me=null;$('#who').textContent='';show('login')};
+$('#fill').onclick=async()=>{const r=await db('SELECT email FROM app_user\nORDER BY user_id\nLIMIT 1;',sb.from('app_user').select('email').order('user_id').limit(1));if(r&&r.data[0])$('#email').value=r.data[0].email};
+$('#loginBtn').onclick=async()=>{const e=$('#email').value.trim();
+ const r=await db(`SELECT * FROM app_user\nWHERE email = '${q1(e)}';`,sb.from('app_user').select('*').eq('email',e).maybeSingle());
+ if(!r)return;if(!r.data){msg('No resident has this email. Check the address and try again.',1);return}
+ me=r.data;
+ await db(`UPDATE app_user\nSET last_seen = now()\nWHERE user_id = ${me.user_id};`,sb.from('app_user').update({last_seen:new Date().toISOString()}).eq('user_id',me.user_id),true);
+ $('#who').textContent='Signed in: '+me.full_name;show('dash');msg('Welcome, '+me.full_name+'.')};
+
+/* Dashboard: SELECT ... WHERE and COUNT */
+L.dash=async()=>{
+ const st=['active','offline','low_battery'];
+ const cs=await Promise.all(st.map(s=>sb.from('sensor_device').select('*',{count:'exact',head:true}).eq('status',s)));
+ $('#stats').innerHTML=st.map((s,i)=>`<div class="stat ${s}"><b>${cs[i].count??0}</b><span>${s.replace('_',' ')}</span></div>`).join('');
+ if($('#fLoc').options.length<2){const a=await sb.from('sensor_device').select('location');[...new Set((a.data||[]).map(x=>x.location))].sort().forEach(l=>$('#fLoc').add(new Option(l,l)))}
+ const fl=$('#fLoc').value,fs=$('#fSt').value,w=[];
+ let q=sb.from('sensor_device').select('device_id,device_type,location,status,last_detection').order('device_id');
+ if(fl){q=q.eq('location',fl);w.push(`location = '${q1(fl)}'`)}if(fs){q=q.eq('status',fs);w.push(`status = '${fs}'`)}
+ const r=await db(`SELECT status, COUNT(*) FROM sensor_device GROUP BY status;\n\nSELECT device_id, device_type, location, status, last_detection\nFROM sensor_device${w.length?'\nWHERE '+w.join(' AND '):''}\nORDER BY device_id;`,q);
+ if(!r)return;$('#devs').innerHTML=r.data.length?r.data.map(d=>`<tr><td>${d.device_id}</td><td>${esc(d.device_type)}</td><td>${esc(d.location)}</td><td>${pill(d.status)}</td><td>${fmt(d.last_detection)}</td></tr>`).join(''):'<tr><td colspan="5">No devices match this filter.</td></tr>'};
+$('#applyF').onclick=()=>L.dash();
+
+/* Alerts: SELECT with JOIN, then UPDATE */
+L.inc=async keep=>{
+ const r=await db(`SELECT e.event_id, e.event_type, e.severity, e.event_time, s.location, a.message\nFROM event e\nJOIN sensor_device s ON s.device_id = e.device_id\nLEFT JOIN alert a ON a.event_id = e.event_id\nWHERE e.is_resolved = FALSE\nORDER BY e.event_time DESC;`,sb.from('event').select('event_id,event_type,severity,event_time,sensor_device(location),alert(message)').eq('is_resolved',false).order('event_time',{ascending:false}),keep);
+ if(!r)return;$('#incs').innerHTML=r.data.length?r.data.map(e=>`<tr><td>${esc(e.event_type)}</td><td>${esc(e.sensor_device&&e.sensor_device.location)}</td><td>${pill(e.severity)}</td><td>${fmt(e.event_time)}</td><td>${esc(e.alert&&e.alert[0]&&e.alert[0].message)}</td><td><button data-r="${e.event_id}">Mark resolved</button></td></tr>`).join(''):'<tr><td colspan="6">No open incidents. Everything is under control.</td></tr>';
+ $$('[data-r]').forEach(b=>b.onclick=async()=>{const id=+b.dataset.r;
+  const u=await db(`UPDATE event\nSET is_resolved = TRUE\nWHERE event_id = ${id};`,sb.from('event').update({is_resolved:true}).eq('event_id',id));
+  if(u){msg('Incident '+id+' marked as resolved.');L.inc(true)}})};
+
+/* History: aggregation (COUNT per group) */
+L.hist=async()=>{
+ const sv=['high','medium','low'],jobs=[];
+ sv.forEach(s=>[false,true].forEach(b=>jobs.push(sb.from('event').select('*',{count:'exact',head:true}).eq('severity',s).eq('is_resolved',b))));
+ const res=await Promise.all(jobs);
+ $('#agg').innerHTML=sv.map((s,i)=>{const o=res[i*2].count??0,d=res[i*2+1].count??0;return`<tr><td>${pill(s)}</td><td>${o}</td><td>${d}</td><td>${o+d}</td></tr>`}).join('');
+ sql('SELECT severity, is_resolved, COUNT(*) AS total_incidents\nFROM event\nGROUP BY severity, is_resolved\nORDER BY severity;');
+ const r=await db('SELECT event_time, event_type, severity, is_resolved\nFROM event\nORDER BY event_time DESC\nLIMIT 10;',sb.from('event').select('event_type,severity,event_time,is_resolved').order('event_time',{ascending:false}).limit(10),true);
+ if(r)$('#recent').innerHTML=r.data.map(e=>`<tr><td>${fmt(e.event_time)}</td><td>${esc(e.event_type)}</td><td>${pill(e.severity)}</td><td>${e.is_resolved?pill('resolved','resolved'):pill('offline','open')}</td></tr>`).join('')};
+
+/* Trusted contacts: SELECT WHERE, INSERT, DELETE */
+L.contacts=async keep=>{
+ const r=await db(`SELECT contact_id, full_name, phone, relationship, priority_level\nFROM trusted_contact\nWHERE user_id = ${me.user_id}\nORDER BY priority_level;`,sb.from('trusted_contact').select('contact_id,full_name,phone,relationship,priority_level').eq('user_id',me.user_id).order('priority_level'),keep);
+ if(!r)return;$('#cons').innerHTML=r.data.length?r.data.map(c=>`<tr><td>${esc(c.full_name)}</td><td>${esc(c.phone)}</td><td>${esc(c.relationship)}</td><td>${c.priority_level}</td><td><button class="bad" data-d="${c.contact_id}">Delete</button></td></tr>`).join(''):'<tr><td colspan="5">No contacts yet. Add someone who can help.</td></tr>';
+ $$('[data-d]').forEach(b=>b.onclick=async()=>{const id=+b.dataset.d;
+  const x=await db(`DELETE FROM trusted_contact\nWHERE contact_id = ${id};`,sb.from('trusted_contact').delete().eq('contact_id',id));
+  if(x){msg('Contact deleted.');L.contacts(true)}})};
+$('#addC').onclick=async()=>{
+ const name=$('#cName').value.trim();if(!name){msg('Enter the contact’s name.',1);return}
+ const row={contact_id:await nextId('trusted_contact','contact_id'),user_id:me.user_id,full_name:name,email:$('#cEmail').value.trim(),phone:$('#cPhone').value.trim(),relationship:$('#cRel').value,priority_level:+$('#cPrio').value||1};
+ const r=await db(`INSERT INTO trusted_contact\n(contact_id, user_id, full_name, email, phone, relationship, priority_level)\nVALUES\n(${row.contact_id}, ${row.user_id}, '${q1(row.full_name)}', '${q1(row.email)}', '${q1(row.phone)}', '${row.relationship}', ${row.priority_level});`,sb.from('trusted_contact').insert(row));
+ if(r){msg('Contact added.');['#cName','#cPhone','#cEmail'].forEach(i=>$(i).value='');L.contacts(true)}};
+
+/* Settings: SELECT WHERE, UPDATE thresholds, INSERT sensor */
+L.settings=async keep=>{
+ const r=await db(`SELECT device_id, device_type, location, threshold_min, threshold_max\nFROM sensor_device\nWHERE user_id = ${me.user_id};`,sb.from('sensor_device').select('device_id,device_type,location,threshold_min,threshold_max').eq('user_id',me.user_id).order('device_id'),keep);
+ if(!r)return;$('#setd').innerHTML=r.data.length?r.data.map(d=>`<tr><td>${d.device_id}</td><td>${esc(d.device_type)}</td><td>${esc(d.location)}</td><td><input class="n" type="number" step="0.01" id="mn${d.device_id}" value="${d.threshold_min??''}"></td><td><input class="n" type="number" step="0.01" id="mx${d.device_id}" value="${d.threshold_max??''}"></td><td><button data-t="${d.device_id}">Save range</button></td></tr>`).join(''):'<tr><td colspan="6">No sensors yet. Add the first one below.</td></tr>';
+ $$('[data-t]').forEach(b=>b.onclick=async()=>{const id=+b.dataset.t,mn=+$('#mn'+id).value,mx=+$('#mx'+id).value;
+  const u=await db(`UPDATE sensor_device\nSET threshold_min = ${mn}, threshold_max = ${mx}\nWHERE device_id = ${id};`,sb.from('sensor_device').update({threshold_min:mn,threshold_max:mx}).eq('device_id',id));
+  if(u)msg('Range saved for sensor '+id+'.')})};
+$('#addD').onclick=async()=>{
+ const loc=$('#nLoc').value.trim();if(!loc){msg('Enter the room for the new sensor.',1);return}
+ const row={device_id:await nextId('sensor_device','device_id'),user_id:me.user_id,device_type:$('#nType').value,location:loc,status:'active',last_detection:new Date().toISOString(),threshold_min:+$('#nMin').value,threshold_max:+$('#nMax').value};
+ const r=await db(`INSERT INTO sensor_device\n(device_id, user_id, device_type, location, status, last_detection, threshold_min, threshold_max)\nVALUES\n(${row.device_id}, ${row.user_id}, '${row.device_type}', '${q1(loc)}', 'active', now(), ${row.threshold_min}, ${row.threshold_max});`,sb.from('sensor_device').insert(row));
+ if(r){msg('Sensor added.');$('#nLoc').value='';L.settings(true)}};
+
+$$('#nav button[data-s]').forEach(b=>b.onclick=()=>show(b.dataset.s));
+show(connect()?'login':'setup');
+</script>
+</body>
+</html>
