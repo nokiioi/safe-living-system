@@ -176,6 +176,7 @@ $('#addD').onclick=async()=>{
  if(r){msg('Sensor added.');$('#nLoc').value='';L.settings(true)}};
 
 $$('#nav button[data-s]').forEach(b=>b.onclick=()=>show(b.dataset.s));
+localStorage.setItem('slsCfg', JSON.stringify({url:'https://lboxpjkixfcyysirlkzs.supabase.co', key:'sb_publishable_yqmNPzDvfgyIZh2R2OEQoA_4KyGcc-I'}));
 show(connect()?'login':'setup');
 </script>
 </body>
